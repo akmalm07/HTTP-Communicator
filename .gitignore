@@ -52,3 +52,5 @@ build/
 Makefile
 *.make
 obj/
+vendor/
+test/

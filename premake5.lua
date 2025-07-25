@@ -1,4 +1,4 @@
-workspace "Solution / Workspace Name"
+workspace "Https-Communicator"
     architecture "x64"
     startproject "ProjName"
 
@@ -8,13 +8,17 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 -- Include directories relative to root folder
 IncludeDir = {}
-IncludeDir["item"] = "vendor/item/include"
+IncludeDir["ASIO"] = "../vendor/ASIO/include"
+IncludeDir["OpenSSL"] = "../vendor/OPENSSL/include"
+IncludeDir["TEST"] = "../test/include"
 
 
 LibDir = {}
-LibDir["item"] = "vendor/item/lib"
+LibDir["OpenSSL"] = "../vendor/OPENSSL/lib"
+LibDir["TEST"] = "../test/lib"
 
 
 
-group "ProjName"
-    include "ProjName/ProjName.lua"
+
+group "https-communicator"
+    include "https-communicator/https-communicator.lua"

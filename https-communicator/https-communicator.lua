@@ -1,5 +1,5 @@
-project "ProjName"
-    location "ProjName"
+project "https-communicator"
+    location "."
     kind "ConsoleApp"
     language "C++"
     cppdialect "C++latest"
@@ -11,13 +11,14 @@ project "ProjName"
     -- Include directories
     includedirs 
     {
-        "%{IncludeDir.item}",
+        "%{IncludeDir.ASIO}",
+        "%{IncludeDir.OpenSSL}",
         "global",            
         "include",           
-        "shaders",
-        "internal-api(optional)/internal",
-        "json",
-        "src"
+        "src",
+
+        "%{IncludeDir.TEST}",
+
     }
 
     -- Files
@@ -25,36 +26,47 @@ project "ProjName"
     {
         "src/**.cpp",           
         "include/**.h",     
-        "include/**.inl",     
-
-        "internal-api(optional)/internal/include/**.h", 
-        "internal-api(optional)/internal/include/**.inl", 
-        
-        "internal-api(optional)/internal/src/**.cpp", 
+        "include/**.inl",
 
         "global/**.h",
         "global/**.cpp",
-
-        "json/**.json",
-
     }
 
     -- Library directories
     libdirs 
     { 
-        "%{LibDir.item}",
+        "%{LibDir.OpenSSL}",
+        
+        "%{LibDir.TEST}",
+
+    }
+
+    defines
+    {
+        "OPENSSL_NO_AUTO_INIT",
+        "OPENSSL_NO_AUTO_CLEANUP",
+        "OPENSSL_USE_STATIC_LIBS",
+        "ASIO_STANDALONE",
     }
 
     -- Links
     links 
     { 
-        "item",
+        "libssl_static",
+        "libcrypto_static.lib",
+        "ws2_32",
+        "crypt32",
+        "user32",
+        "gdi32",
+
+        "gtest",
+        "gmock",
+
     }
 
     pchheader "headers.h"
     pchsource "headers.cpp"
 
-    define { "ITEM" }
 
     flags { "Verbose" }
 
