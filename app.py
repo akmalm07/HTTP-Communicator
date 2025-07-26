@@ -12,8 +12,7 @@ def upload():
     raw_data = request.data.decode('utf-8')  # Read raw POST body as plain text
     print(f"Received Plain Text: {raw_data}")
     return 'Plain Text Received!'@app.route('/')
-def thanks():
-    return 'Hello'
+
 
 app.run(
     host="0.0.0.0",  # or "127.0.0.1"

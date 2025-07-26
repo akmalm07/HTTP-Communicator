@@ -4,10 +4,10 @@
 
 namespace communicator
 {
-	HTTPCommunicator::HTTPCommunicator(const std::unordered_map<std::string, std::string>& headers, size_t requestTimeout)
-		: _headers(headers), _requestTimeout(requestTimeout)
+	HTTPCommunicator::HTTPCommunicator(std::string_view url, const std::unordered_map<std::string, std::string>& headers, size_t requestTimeout)
+		: _headers(headers), _requestTimeout(requestTimeout), _requestUrl(std::string(url))
 	{
-
+		make_persistent_connection(url);
 	}
 
 	HTTPErr HTTPCommunicator::make_persistent_connection(std::string_view url, const std::unordered_map<std::string, std::string>& extraHeaders)
@@ -18,20 +18,22 @@ namespace communicator
 			return HTTPErr::None;
 		}
 
-		auto output = decrypt_url_http(url);
-		if (!output.has_value())
+		auto outputResult = decrypt_url_http(url);
+		if (!outputResult.has_value())
 		{
 			std::cerr << "Invalid URL: " << url << std::endl;
 			return HTTPErr::InvalidURL;
 		}
 
-		auto socketResult = create_and_connect_socket(_persistentIoContext, output->host, output->port);
+		URLDecriptorOutput output = outputResult.value();
+
+		auto socketResult = create_and_connect_socket(_persistentIoContext, output.host, output.port, _requestTimeout);
 		if (!socketResult.has_value())
 		{
 			return socketResult.error();
 		}
 
-		auto requestResult = write_headers(HTTPMethod::GET, HTTPConnection::Close, HTTPContent::None, output->host, output->path, "", extraHeaders);
+		auto requestResult = write_persistent_headers(HTTPMethod::GET, HTTPConnection::Close, HTTPContent::None, output.host, output.path, "", extraHeaders);
 		if (!requestResult.has_value())
 		{
 			return requestResult.error();
@@ -42,30 +44,49 @@ namespace communicator
 		// Send the HTTP request
 		asio::write(*_socket, asio::buffer(requestResult.value()));
 
-		std::cout << "Persistent connection established to: " << output->host << ":" << output->port << std::endl;
-		std::cout << "Path: " << output->path << std::endl;
+		std::cout << "Persistent connection established to: " << output.host << ":" << output.port << std::endl;
+		std::cout << "Path: " << output.path << std::endl;
 
+		// Read the HTTP response
+		auto responseResult = read_http_response(*_socket);
+		if (!responseResult.has_value())
+		{
+			std::cerr << "Failed to read HTTP response: " << static_cast<int>(responseResult.error()) << std::endl;
+			return responseResult.error();
+		}
+		std::cout << "HTTP response received: " << int(responseResult->connection) << std::endl;
 		return HTTPErr::None;
 	}
 
-	std::expected<std::string, HTTPErr> HTTPCommunicator::get(std::string_view url)
+	std::expected<HTTPOutput, HTTPErr> HTTPCommunicator::get(std::string_view url)
 	{
-		auto output = decrypt_url_http(url);
-		if (!output.has_value())
-		{
-			return std::unexpected(output.error());
-		}
-		return send_http_request(HTTPMethod::GET, HTTPContent::None, output->host, output->path, output->port, "");
+
 	}
 
-	std::expected<std::string, HTTPErr> HTTPCommunicator::post(std::string_view url, HTTPContent content, std::string_view body, const std::unordered_map<std::string, std::string>& headers)
+	std::expected<HTTPOutput, HTTPErr> get(std::string_view url)
 	{
-		auto output = decrypt_url_http(url);
-		if (!output.has_value())
+		auto outputResult = decrypt_url_http(url);
+		if (!outputResult.has_value())
 		{
-			return std::unexpected(output.error());
+			return std::unexpected(outputResult.error());
 		}
-		return send_http_request(HTTPMethod::POST, content, output->host, output->path, output->port, body);
+
+		URLDecriptorOutput output = outputResult.value();
+
+		return send_http_request(HTTPMethod::GET, HTTPContent::None, output.host, output.path, output.port, "");
+	}
+
+	std::expected<HTTPOutput, HTTPErr> post(std::string_view url, HTTPContent content, std::string_view body, const std::unordered_map<std::string, std::string>& headers)
+	{
+		auto outputResult = decrypt_url_http(url);
+		if (!outputResult.has_value())
+		{
+			return std::unexpected(outputResult.error());
+		}
+
+		URLDecriptorOutput output = outputResult.value();
+
+		return send_http_request(HTTPMethod::POST, content, output.host, output.path, output.port, body);
 	
 	}
 
@@ -86,14 +107,33 @@ namespace communicator
 		std::cout << "Proxy set to: " << _proxyHost << ":" << _proxyPort << std::endl;
 	}
 
+	HTTPCommunicator::~HTTPCommunicator()
+	{
+		if (_socket && _socket->is_open())
+		{
+			std::cout << "Closing persistent connection." << std::endl;
 
-	std::expected<std::string, HTTPErr> HTTPCommunicator::send_http_request(HTTPMethod method, HTTPContent content, std::string_view host, std::string_view path, std::string_view port, std::string_view body, const std::unordered_map<std::string, std::string>& extraHeaders)
+
+
+			try
+			{
+				_socket->close();
+			}
+			catch (const std::exception& e)
+			{
+				std::cerr << "Error closing socket: " << e.what() << std::endl;
+			}
+		}
+	}
+
+
+	std::expected<HTTPOutput, HTTPErr> send_http_request(HTTPMethod method, HTTPContent content, std::string_view host, std::string_view path, std::string_view port, std::string_view body, const std::unordered_map<std::string, std::string>& extraHeaders)
 	{
 		try
 		{
 			asio::io_context ioContext;
 		
-			auto socketResult = create_and_connect_socket(ioContext, host, port);
+			auto socketResult = create_and_connect_socket(ioContext, host, port, 10);
 			if (!socketResult.has_value())
 			{
 				return std::unexpected(socketResult.error());
@@ -110,7 +150,7 @@ namespace communicator
 
 			std::cout << "HTTP request sent: " << requestResult.value() << std::endl;
 
-			return read_http_response_body(socket);
+			return read_http_response(socket);
 		}
 		catch (const std::exception& e)
 		{
@@ -120,29 +160,66 @@ namespace communicator
 
 	}
 
-	std::expected<std::string, HTTPErr> HTTPCommunicator::write_headers(HTTPMethod method, HTTPConnection connection, HTTPContent contentType, std::string_view host, std::string_view path, std::string_view body, const std::unordered_map<std::string, std::string>& extraHeaders)
+	std::expected<HTTPOutput, HTTPErr> send_raw_http_request(std::string_view host, std::string_view path, std::string_view port, std::string_view request, asio::ip::tcp::socket* socket)
+	{
+		std::unique_ptr<asio::ip::tcp::socket> socketPtr;
+
+		try
+		{
+			asio::io_context ioContext;
+			if (!(socket && socket->is_open()))
+			{
+				auto socketResult = create_and_connect_socket(ioContext, host, port, 10);
+				if (!socketResult.has_value())
+				{
+					return std::unexpected(socketResult.error());
+				}
+				socketPtr = std::make_unique<asio::ip::tcp::socket>(std::move(socketResult.value()));
+			}
+
+			auto result = is_valid_http_request(request);
+			if (result != HTTPErr::None)
+			{
+				return std::unexpected(result);
+			}
+		
+			if (!socket)
+			{
+				socket = socketPtr.get();
+			}
+
+			asio::write(*socket, asio::buffer(request));
+			std::cout << "Raw HTTP request sent: " << request << std::endl;
+			return read_http_response(*socket);
+		}
+		catch (const std::exception& e)
+		{
+			std::cerr << "Error: " << e.what() << std::endl;
+			return std::unexpected(HTTPErr::ConnectionFailed);
+		}
+	}
+
+
+	std::expected<std::string, HTTPErr> write_headers(HTTPMethod method, HTTPConnection connection, HTTPContent contentType, std::string_view host, std::string_view path, std::string_view body, const std::unordered_map<std::string, std::string>& headers)
 	{
 		std::ostringstream requestStream;
 		requestStream << to_string(method) << " " << path << " HTTP/1.1\r\n";
 		requestStream << "Host: " << host << "\r\n";
-		for (const auto& header : _headers)
+
+		for (const auto& header : headers)
 		{
 			requestStream << header.first << ": " << header.second << "\r\n";
 		}
 
-		for (const auto& header : extraHeaders)
-		{
-			requestStream << header.first << ": " << header.second << "\r\n";
-		}
-
-		requestStream << "Connection: " << to_string(connection) << "\r\n\r\n";
+		requestStream << "Connection: " << to_string(connection) << "\r\n";
 
 		if (!body.empty())
 		{
 			requestStream << "Content-Length: " << body.size() << "\r\n";
-			requestStream << "Content-Type: " << to_string(contentType) << "\r\n";
 
-			
+			//std::cout << body.size() << "\n";
+
+			requestStream << "Content-Type: " << to_string(contentType) << "\r\n";
 		}
 		else if (method == HTTPMethod::POST || method == HTTPMethod::PUT)
 		{
@@ -156,7 +233,31 @@ namespace communicator
 		return requestStream.str();
 	}
 
-	std::expected<HTTPOutput, HTTPErr> HTTPCommunicator::read_http_response(asio::ip::tcp::socket& socket, HTTPMethod method)
+	std::expected<HTTPOutput, HTTPErr> HTTPCommunicator::send_raw_request(std::string_view host, std::string_view path, std::string_view port, std::string_view request)
+	{
+		return send_raw_http_request(host, path, port, request, _socket.get());
+	}
+
+	std::expected<std::string, HTTPErr> HTTPCommunicator::write_persistent_headers(HTTPMethod method, HTTPConnection connection, HTTPContent contentType, std::string_view host, std::string_view path, std::string_view body, const std::unordered_map<std::string, std::string>& extraHeaders)
+	{
+		auto headers = extraHeaders;
+		
+		headers.insert(_headers.begin(), _headers.end());
+		
+		for (const auto& extraHeader : headers)
+		{
+			auto it = _headers.find(extraHeader.first);
+			if (it != _headers.end())
+			{
+				headers.erase(it);
+			}
+		}
+
+
+		return write_headers(method, connection, contentType, host, path, body, headers);
+	}
+
+	std::expected<HTTPOutput, HTTPErr> read_http_response(asio::ip::tcp::socket& socket)
 	{
 		// Read the HTTP response
 		asio::streambuf responseBuffer;
@@ -173,73 +274,34 @@ namespace communicator
 
 		if (statusCode != 200)
 			return std::unexpected(HTTPErr::ResponseError);
-
-		if (method == HTTPMethod::HEAD)
-		{
-			return std::unexpected(HTTPErr::NoBodyForMethod);
-		}
-
+		if (httpVersion != "HTTP/1.1" && httpVersion != "HTTP/2.0")
+			return std::unexpected(HTTPErr::HTTPVersionUndefined);
 		// Read headers
 		std::string header;
+
 		size_t contentLength = 0;
-
 		HTTPContent contentType = HTTPContent::None;
-
+		HTTPTransferEncoding transferEncoding = HTTPTransferEncoding::None;
+		HTTPContentEncoding contentEncoding = HTTPContentEncoding::None;
 		HTTPConnection connection = HTTPConnection::Close;
+		HTTPLanguage language = HTTPLanguage::None;
 
 		while (std::getline(responseStream, header) && header != "\r")
 		{
 
 			if (header.starts_with("Transfer-Encoding:"))
 			{
-				if (header.substr(19) == "chunked")
-				{
-					return std::unexpected(HTTPErr::ChunkedEncodingNotSupported);
-				}
-				else if (header.substr(19) == "identity")
-				{
-					contentType = HTTPContent::TextPlain; 
-				}
-				else
-				{
-					return std::unexpected(HTTPErr::UnsupportedTransferEncoding);
-				}
+				transferEncoding = static_cast<HTTPTransferEncoding>(to_uint32<HTTPTransferEncoding>(header.substr(19)));
+			}
+
+			if (header.starts_with("Content-Encoding:"))
+			{
+				contentEncoding = static_cast<HTTPContentEncoding>(to_uint32<HTTPContentEncoding>(header.substr(18)));
 			}
 
 			if (header.starts_with("Content-Type:"))
-			{
-				if (header.substr(14).find("text/html") != std::string::npos)
-				{
-					contentType = HTTPContent::TextHTML;
-				}
-				else if (header.substr(14).find("text/css") != std::string::npos)
-				{
-					contentType = HTTPContent::TextCSS; 
-				}
-				else if (header.substr(14).find("application/json") != std::string::npos)
-				{
-					contentType = HTTPContent::ApplicationJSON;
-				}
-				else if (header.substr(14).find("application/xml") != std::string::npos)
-				{
-					contentType = HTTPContent::ApplicationXML;
-				}
-				else if (header.substr(14).find("application/x-www-form-urlencoded") != std::string::npos)
-				{
-					contentType = HTTPContent::ApplicationFormUrlEncoded;
-				}
-				else if (header.substr(14).find("image/png") != std::string::npos)
-				{
-					contentType = HTTPContent::ImagePNG;
-				}
-				else if (header.substr(14).find("image/jpeg") != std::string::npos)
-				{
-					contentType = HTTPContent::ImageJPEG;
-				}
-				else if (header.substr(14).find("image/gif") != std::string::npos)
-				{
-					contentType = HTTPContent::ImageGIF;
-				}
+			{				
+				contentType = static_cast<HTTPContent>(to_uint32<HTTPContent>(header.substr(14)));
 			}
 
 			if (header.starts_with("Content-Length:"))
@@ -254,48 +316,76 @@ namespace communicator
 				}
 			}
 
+			if (header.starts_with("Content-Language:"))
+			{
+				language = static_cast<HTTPLanguage>(to_uint32<HTTPLanguage>(header.substr(17)));
+			}
+
 			if (header.starts_with("Connection:"))
 			{
-				if (header.substr(12) == "keep-alive")
-				{
-					connection = HTTPConnection::Persistent;
-				}
-				else if (header.substr(12) == "upgrade")
-				{
-					connection = HTTPConnection::Upgrade;
-				}
+				connection = static_cast<HTTPConnection>(to_uint32<HTTPConnection>((header.substr(12))));
 			}
 
 			if (header.empty())
 				break; 
 		}
 
-		if (contentLength == 0)
-			return std::unexpected(HTTPErr::InvalidContentSize);
-
-		std::string bodyContent;
+		
 		std::ostringstream bodyStream;
-		if (responseBuffer.size() > 0)
+
+		if (transferEncoding == HTTPTransferEncoding::Chunked && contentLength == 0)
+		{
+			while (true)
+			{
+				std::string chunkSizeStr;
+				std::getline(responseStream, chunkSizeStr);
+
+				if (chunkSizeStr.empty())
+					continue;
+
+				size_t chunkSize = std::stoul(chunkSizeStr, nullptr, 16);
+
+				if (chunkSize == 0)
+					break;
+
+				asio::read(socket, responseBuffer, asio::transfer_exactly(chunkSize));
+				bodyStream << &responseBuffer; 
+
+				contentLength += chunkSize;
+
+				std::string crlf;
+				std::getline(responseStream, crlf);
+			}
+		}
+		else
+		{
+			std::string bodyContent;
+			if (responseBuffer.size() > 0)
+				bodyStream << &responseBuffer;
+
+			size_t remaining = contentLength - bodyStream.str().size();
+
+			if (remaining > 0)
+				asio::read(socket, responseBuffer, asio::transfer_exactly(remaining));
+
 			bodyStream << &responseBuffer;
 
-		size_t remaining = contentLength - bodyStream.str().size();
-
-		if (remaining > 0)
-			asio::read(socket, responseBuffer, asio::transfer_exactly(remaining));
-
-		bodyStream << &responseBuffer;
+		}
 
 		return HTTPOutput{
 			bodyStream.str(),
 			contentType,
 			connection,
+			transferEncoding,
+			contentEncoding,
+			language,
 			contentLength,
 			statusCode,
 			statusMessage
 		};
 	}
 
-	std::expected<asio::ip::tcp::socket, HTTPErr> HTTPCommunicator::create_and_connect_socket(asio::io_context& ioContext, std::string_view host, std::string_view port)
+	std::expected<asio::ip::tcp::socket, HTTPErr> create_and_connect_socket(asio::io_context& ioContext, std::string_view host, std::string_view port, size_t requestTimeout)
 	{
 		asio::steady_timer timer(ioContext);
 		bool connectStatus = false;
@@ -315,17 +405,15 @@ namespace communicator
 		asio::async_connect(socket, endpoint,
 			[&connectStatus, &timer](const asio::error_code& ec, const asio::ip::tcp::endpoint& endpoint)
 			{
-				if (ec)
+				if (!ec)
 				{
-					std::cerr << "Connection failed: " << ec.message() << std::endl;
-					return;
+					connectStatus = true;
+					timer.cancel();
 				}
-				connectStatus = true;
-				timer.cancel();
 			}
 		);
 
-		timer.expires_after(std::chrono::seconds(_requestTimeout));
+		timer.expires_after(std::chrono::seconds(requestTimeout));
 
 		timer.async_wait([&connectStatus, &socket](const asio::error_code& ec)
 			{
@@ -346,9 +434,56 @@ namespace communicator
 		return std::move(socket);
 	}
 
+	HTTPErr is_valid_http_request(std::string_view request)
+	{
+		if (request.empty())
+		{
+			std::cerr << "HTTP request is empty." << std::endl;
+			return HTTPErr::EmptyRequest;
+		}
+
+		// Validate method
+		constexpr std::string_view methods[] = { "GET ", "POST ", "PUT ", "DELETE ", "PATCH ", "HEAD ", "OPTIONS " };
+		bool validMethod = false;
+		for (auto& method : methods)
+		{
+			if (request.starts_with(method))
+			{
+				validMethod = true;
+				break;
+			}
+		}
+		if (!validMethod)
+		{
+			return HTTPErr::InvalidMethod;
+		}
+
+		auto firstLineEnd = request.find("\r\n");
+		if (firstLineEnd == std::string_view::npos)
+		{
+			return HTTPErr::MissingCRLF;
+		}
+
+		if (request.find("\r\n\r\n") == std::string_view::npos)
+		{
+			return HTTPErr::MissingHeaderTerminator;
+		}
+
+		auto request_line = request.substr(0, firstLineEnd);
+		if (request_line.find("HTTP/1.1") == std::string_view::npos &&
+			request_line.find("HTTP/1.0") == std::string_view::npos)
+		{
+			return HTTPErr::InvalidHTTPVersion;
+		}
+
+		// Passed all checks
+		return HTTPErr::None;
+	}
 
 
-	std::string parse_http(const std::string& response, ParseHTTP type)
+
+
+	std::string parse_http(const std::string& response, HTTPParse type)
 	{
 		std::istringstream stream(response);
 		std::string line;
@@ -360,23 +495,23 @@ namespace communicator
 
 			switch (type)
 			{
-			case communicator::ParseHTTP::ContentLength:
+			case communicator::HTTPParse::ContentLength:
 				if (line.starts_with("Content-Length:"))
 					return line.substr(16);
 				break;
-			case communicator::ParseHTTP::ContentType:
+			case communicator::HTTPParse::ContentType:
 				if (line.starts_with("Content-Type:"))
 					return line.substr(14);
 				break;
-			case communicator::ParseHTTP::TransferEncoding:
+			case communicator::HTTPParse::TransferEncoding:
 				if (line.starts_with("Transfer-Encoding:"))
 					return line.substr(19);
 				break;
-			case communicator::ParseHTTP::Connection:
+			case communicator::HTTPParse::Connection:
 				if (line.starts_with("Connection:"))
 					return line.substr(12);
 				break;
-			case communicator::ParseHTTP::StatusMessage:
+			case communicator::HTTPParse::StatusMessage:
 				if (line.starts_with("HTTP/"))
 				{
 					auto pos = line.find(' ');
@@ -384,7 +519,7 @@ namespace communicator
 						return line.substr(pos + 1);
 				}
 				break;
-			case communicator::ParseHTTP::StatusCode:
+			case communicator::HTTPParse::StatusCode:
 				if (line.starts_with("HTTP/"))
 				{
 					auto pos = line.find(' ');
@@ -398,50 +533,6 @@ namespace communicator
 			}
 		}
 		return {};
-	}
-
-
-	std::string to_string(HTTPMethod method)
-	{
-		switch (method)
-		{
-		case HTTPMethod::GET: return "GET";
-		case HTTPMethod::POST: return "POST";
-		case HTTPMethod::PUT: return "PUT";
-		case HTTPMethod::DEL: return "DELETE";
-		case HTTPMethod::PATCH: return "PATCH";
-		case HTTPMethod::HEAD: return "HEAD";
-		case HTTPMethod::OPTIONS: return "OPTIONS";
-		default: return "";
-		}
-	}
-
-	std::string to_string(HTTPConnection method)
-	{
-		switch (method)
-		{
-		case HTTPConnection::Persistent: return "keep-alive";
-		case HTTPConnection::Close: return "close";
-		case HTTPConnection::Upgrade: return "upgrade";
-		default: return "";
-		}
-	}
-
-	std::string to_string(HTTPContent content)
-	{
-		switch (content)
-		{
-		case HTTPContent::None: return "text/plain";
-		case HTTPContent::TextPlain: return "text/plain";
-		case HTTPContent::TextHTML: return "text/html";
-		case HTTPContent::ApplicationJSON: return "application/json";
-		case HTTPContent::ApplicationXML: return "application/xml";
-		case HTTPContent::ApplicationFormUrlEncoded: return "application/x-www-form-urlencoded";
-		case HTTPContent::ImagePNG: return "image/png";
-		case HTTPContent::ImageJPEG: return "image/jpeg";
-		case HTTPContent::ImageGIF: return "image/gif";
-		default: return "";
-		}
 	}
 
 	std::expected<URLDecriptorOutput, HTTPErr> decrypt_url_http(std::string_view url)

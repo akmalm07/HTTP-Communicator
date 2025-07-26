@@ -102,6 +102,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="global\headers.h" />
+    <ClInclude Include="include\http_enums.h" />
     <ClInclude Include="include\http_communicator.h" />
     <ClInclude Include="include\main.h" />
   </ItemGroup>
@@ -109,8 +110,12 @@
     <ClCompile Include="global\headers.cpp">
       <AdditionalOptions>/Ycheaders.h %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="src\http_enums.cpp" />
     <ClCompile Include="src\http_communicator.cpp" />
     <ClCompile Include="src\main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="include\http_enums.inl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

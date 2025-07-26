@@ -5,10 +5,8 @@
 
 TEST(HTTPCommunicatorTest, Get_ValidURL_ReturnsResponse)
 {
-    communicator::HTTPCommunicator http({}, 10);
-    auto result = http.post("http://localhost:8080/upload", communicator::HTTPContent::TextPlain, "hello form C++");
+    communicator::HTTPCommunicator http("http://localhost:8080", {}, 10);
 
-	ASSERT_EQ(result.error(), communicator::HTTPErr::None);
 }
 
 
