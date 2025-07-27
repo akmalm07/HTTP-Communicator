@@ -17,8 +17,6 @@ project "https-communicator"
         "include",           
         "src",
 
-        "%{IncludeDir.TEST}",
-
     }
 
     -- Files
@@ -35,32 +33,31 @@ project "https-communicator"
     -- Library directories
     libdirs 
     { 
-        "%{LibDir.OpenSSL}",
-        
-        "%{LibDir.TEST}",
-
+        --"%{LibDir.OpenSSL}",
     }
 
     defines
     {
-        "OPENSSL_NO_AUTO_INIT",
-        "OPENSSL_NO_AUTO_CLEANUP",
-        "OPENSSL_USE_STATIC_LIBS",
+        --"OPENSSL_NO_AUTO_INIT", TODO: Implement TLS for HTTPS communication using the OpenSSL Lib
+        --"OPENSSL_NO_AUTO_CLEANUP",
+        --"OPENSSL_USE_STATIC_LIBS",
         "ASIO_STANDALONE",
     }
 
     -- Links
     links 
     { 
-        "libssl_static",
-        "libcrypto_static.lib",
-        "ws2_32",
-        "crypt32",
-        "user32",
-        "gdi32",
+        --"libssl_static",
+        --"libcrypto_static.lib",
+        --"ws2_32",
+        --"crypt32",
+        --"user32",
+        --"gdi32",
 
-        "gtest",
-        "gmock",
+        --Used gtest for testing perposes
+    
+        --"gtest",
+        --"gmock",
 
     }
 
