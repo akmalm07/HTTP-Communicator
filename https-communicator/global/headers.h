@@ -17,3 +17,15 @@
 #include <expected>
 
 #include <asio.hpp>
+
+#ifdef DEBUG
+constexpr bool DEBUG_STATUS = true;
+#elif defined(NDEBUG)
+constexpr bool DEBUG_STATUS = false;
+#else
+constexpr bool DEBUG_STATUS = false;
+#endif
+
+#define DEBUG_LN if (DEBUG_STATUS)
+
+#define DEBUG(x) if (DEBUG_STATUS) { std::cout << x << std::endl; }

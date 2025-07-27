@@ -90,6 +90,7 @@ namespace communicator
 		DNSResolutionFailed,
 		ConnectionFailed,
 		RequestTimeout,
+		InvalidData,
 		EmptyRequest,
 		InvalidMethod,
 		MissingCRLF,
