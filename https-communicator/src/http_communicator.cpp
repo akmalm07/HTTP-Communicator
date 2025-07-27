@@ -25,15 +25,13 @@ namespace communicator
 			return HTTPErr::InvalidURL;
 		}
 
-		URLDecriptorOutput output = outputResult.value();
-
-		auto socketResult = create_and_connect_socket(_persistentIoContext, output.host, output.port, _requestTimeout);
+		auto socketResult = create_and_connect_socket(_persistentIoContext, outputResult->host, outputResult->port, _requestTimeout);
 		if (!socketResult.has_value())
 		{
 			return socketResult.error();
 		}
 
-		auto requestResult = write_persistent_headers(HTTPMethod::GET, HTTPConnection::Close, HTTPContent::None, output.host, output.path, "", extraHeaders);
+		auto requestResult = this->write_headers(HTTPMethod::GET, HTTPConnection::Close, HTTPContent::None, outputResult->host, outputResult->path, "", extraHeaders);
 		if (!requestResult.has_value())
 		{
 			return requestResult.error();
@@ -44,8 +42,8 @@ namespace communicator
 		// Send the HTTP request
 		asio::write(*_socket, asio::buffer(requestResult.value()));
 
-		std::cout << "Persistent connection established to: " << output.host << ":" << output.port << std::endl;
-		std::cout << "Path: " << output.path << std::endl;
+		std::cout << "Persistent connection established to: " << outputResult->host << ":" << outputResult->port << std::endl;
+		std::cout << "Path: " << outputResult->path << std::endl;
 
 		// Read the HTTP response
 		auto responseResult = read_http_response(*_socket);
@@ -58,12 +56,17 @@ namespace communicator
 		return HTTPErr::None;
 	}
 
-	std::expected<HTTPOutput, HTTPErr> HTTPCommunicator::get(std::string_view url)
+	std::expected<HTTPOutput, HTTPErr> HTTPCommunicator::get(std::string_view url, const std::unordered_map<std::string, std::string>& headers)
 	{
-
+		return ::communicator::get(url, headers, _socket.get());
 	}
 
-	std::expected<HTTPOutput, HTTPErr> get(std::string_view url)
+	std::expected<HTTPOutput, HTTPErr> HTTPCommunicator::post(std::string_view url, HTTPContent content, std::string_view body, const std::unordered_map<std::string, std::string>& headers)
+	{
+		return ::communicator::post(url, content, body, headers, _socket.get());
+	}
+
+	std::expected<HTTPOutput, HTTPErr> get(std::string_view url, const std::unordered_map<std::string, std::string>& headers, asio::ip::tcp::socket* socket)
 	{
 		auto outputResult = decrypt_url_http(url);
 		if (!outputResult.has_value())
@@ -71,12 +74,10 @@ namespace communicator
 			return std::unexpected(outputResult.error());
 		}
 
-		URLDecriptorOutput output = outputResult.value();
-
-		return send_http_request(HTTPMethod::GET, HTTPContent::None, output.host, output.path, output.port, "");
+		return send_http_request(HTTPMethod::GET, HTTPContent::None, outputResult->host, outputResult->path, outputResult->port, "", headers, socket);
 	}
 
-	std::expected<HTTPOutput, HTTPErr> post(std::string_view url, HTTPContent content, std::string_view body, const std::unordered_map<std::string, std::string>& headers)
+	std::expected<HTTPOutput, HTTPErr> post(std::string_view url, HTTPContent content, std::string_view body, const std::unordered_map<std::string, std::string>& headers, asio::ip::tcp::socket* socket)
 	{
 		auto outputResult = decrypt_url_http(url);
 		if (!outputResult.has_value())
@@ -84,9 +85,7 @@ namespace communicator
 			return std::unexpected(outputResult.error());
 		}
 
-		URLDecriptorOutput output = outputResult.value();
-
-		return send_http_request(HTTPMethod::POST, content, output.host, output.path, output.port, body);
+		return send_http_request(HTTPMethod::POST, content, outputResult->host, outputResult->path, outputResult->port, body, headers, socket);
 	
 	}
 
@@ -127,30 +126,38 @@ namespace communicator
 	}
 
 
-	std::expected<HTTPOutput, HTTPErr> send_http_request(HTTPMethod method, HTTPContent content, std::string_view host, std::string_view path, std::string_view port, std::string_view body, const std::unordered_map<std::string, std::string>& extraHeaders)
+	std::expected<HTTPOutput, HTTPErr> send_http_request(HTTPMethod method, HTTPContent content, std::string_view host, std::string_view path, std::string_view port, std::string_view body, const std::unordered_map<std::string, std::string>& headers, asio::ip::tcp::socket* socket)
 	{
 		try
 		{
 			asio::io_context ioContext;
-		
-			auto socketResult = create_and_connect_socket(ioContext, host, port, 10);
-			if (!socketResult.has_value())
-			{
-				return std::unexpected(socketResult.error());
-			}
-			asio::ip::tcp::socket socket = std::move(socketResult.value());
 
-			auto requestResult = write_headers(method, HTTPConnection::Close, content, host, path, body, extraHeaders);
+			if (socket && socket->is_open())
+				goto GOTO_SKIP_SOCKET_CREATION_HTTP_REQ;
+
+			{
+				auto socketResult = create_and_connect_socket(ioContext, host, port, 10);
+				if (!socketResult.has_value())
+				{
+					return std::unexpected(socketResult.error());
+				}
+				socket = &socketResult.value();
+			}
+
+
+		GOTO_SKIP_SOCKET_CREATION_HTTP_REQ:
+
+			auto requestResult = write_headers(method, HTTPConnection::Close, content, host, path, body, headers);
 			if (!requestResult.has_value())
 			{
 				return std::unexpected(requestResult.error());
 			}
 			// Send the HTTP request
-			asio::write(socket, asio::buffer(requestResult.value()));
+			asio::write(*socket, asio::buffer(requestResult.value()));
 
 			std::cout << "HTTP request sent: " << requestResult.value() << std::endl;
 
-			return read_http_response(socket);
+			return read_http_response(*socket);
 		}
 		catch (const std::exception& e)
 		{
@@ -162,30 +169,29 @@ namespace communicator
 
 	std::expected<HTTPOutput, HTTPErr> send_raw_http_request(std::string_view host, std::string_view path, std::string_view port, std::string_view request, asio::ip::tcp::socket* socket)
 	{
-		std::unique_ptr<asio::ip::tcp::socket> socketPtr;
-
 		try
 		{
 			asio::io_context ioContext;
-			if (!(socket && socket->is_open()))
+			if (socket && socket->is_open())
+				goto GOTO_SKIP_SOCKET_CREATION_RAW_HTTP_REQ;
+
+
 			{
 				auto socketResult = create_and_connect_socket(ioContext, host, port, 10);
 				if (!socketResult.has_value())
 				{
 					return std::unexpected(socketResult.error());
 				}
-				socketPtr = std::make_unique<asio::ip::tcp::socket>(std::move(socketResult.value()));
+				socket = &socketResult.value();
 			}
+
+
+		GOTO_SKIP_SOCKET_CREATION_RAW_HTTP_REQ:
 
 			auto result = is_valid_http_request(request);
 			if (result != HTTPErr::None)
 			{
 				return std::unexpected(result);
-			}
-		
-			if (!socket)
-			{
-				socket = socketPtr.get();
 			}
 
 			asio::write(*socket, asio::buffer(request));
@@ -233,12 +239,12 @@ namespace communicator
 		return requestStream.str();
 	}
 
-	std::expected<HTTPOutput, HTTPErr> HTTPCommunicator::send_raw_request(std::string_view host, std::string_view path, std::string_view port, std::string_view request)
+	std::expected<HTTPOutput, HTTPErr> HTTPCommunicator::send_raw_http_request(std::string_view host, std::string_view path, std::string_view port, std::string_view request)
 	{
-		return send_raw_http_request(host, path, port, request, _socket.get());
+		return ::communicator::send_raw_http_request(host, path, port, request, _socket.get());
 	}
 
-	std::expected<std::string, HTTPErr> HTTPCommunicator::write_persistent_headers(HTTPMethod method, HTTPConnection connection, HTTPContent contentType, std::string_view host, std::string_view path, std::string_view body, const std::unordered_map<std::string, std::string>& extraHeaders)
+	std::expected<std::string, HTTPErr> HTTPCommunicator::write_headers(HTTPMethod method, HTTPConnection connection, HTTPContent contentType, std::string_view host, std::string_view path, std::string_view body, const std::unordered_map<std::string, std::string>& extraHeaders)
 	{
 		auto headers = extraHeaders;
 		
@@ -254,7 +260,7 @@ namespace communicator
 		}
 
 
-		return write_headers(method, connection, contentType, host, path, body, headers);
+		return ::communicator::write_headers(method, connection, contentType, host, path, body, headers);
 	}
 
 	std::expected<HTTPOutput, HTTPErr> read_http_response(asio::ip::tcp::socket& socket)
@@ -535,7 +541,7 @@ namespace communicator
 		return {};
 	}
 
-	std::expected<URLDecriptorOutput, HTTPErr> decrypt_url_http(std::string_view url)
+	std::expected<URLDescriptorOutput, HTTPErr> decrypt_url_http(std::string_view url)
 	{
 		std::string_view host;
 		std::string path, port = "80";
@@ -574,6 +580,6 @@ namespace communicator
 			hostStr = host.substr(0, colonPos);
 			port = host.substr(colonPos + 1);
 		}
-		return URLDecriptorOutput{ hostStr, path, port };
+		return URLDescriptorOutput{ hostStr, path, port };
 	}
 }

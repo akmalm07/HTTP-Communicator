@@ -129,27 +129,6 @@ namespace communicator
 		std::same_as<T, HTTPTransferEncoding> ||
 		std::same_as<T, HTTPLanguage>;
 
-	struct URLDecriptorOutput
-	{
-		std::string host;
-		std::string path;
-		std::string port;
-	};
-
-	struct HTTPOutput
-	{
-		std::string body;
-		HTTPContent contentType;
-		HTTPConnection connection;
-		HTTPTransferEncoding transferEncoding;
-		HTTPContentEncoding contentEncoding;
-		HTTPLanguage language;
-		size_t contentLength;
-		unsigned int statusCode;
-		std::string statusMessage;
-	};
-
-
 
 	std::string to_string(HTTPMethod method);
 

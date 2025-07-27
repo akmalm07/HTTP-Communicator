@@ -8,7 +8,7 @@
 namespace communicator
 {
 
-	struct URLDecriptorOutput
+	struct URLDescriptorOutput // URLDescriptorOutput
 	{
 		std::string host;
 		std::string path;
@@ -36,7 +36,7 @@ namespace communicator
 
 		virtual HTTPErr make_persistent_connection(std::string_view url, const std::unordered_map<std::string, std::string>& extraHeaders = {});
 
-		virtual std::expected<HTTPOutput, HTTPErr> get(std::string_view url);
+		virtual std::expected<HTTPOutput, HTTPErr> get(std::string_view url, const std::unordered_map<std::string, std::string>& headers = {});
 
 		virtual std::expected<HTTPOutput, HTTPErr> post(std::string_view url, HTTPContent content, std::string_view body, const std::unordered_map<std::string, std::string>& headers = {});
 
@@ -64,10 +64,10 @@ namespace communicator
 
 	private:
 
-		std::expected<HTTPOutput, HTTPErr> send_raw_request(std::string_view host, std::string_view path, std::string_view port, std::string_view request);
+		std::expected<HTTPOutput, HTTPErr> send_raw_http_request(std::string_view host, std::string_view path, std::string_view port, std::string_view request);
 
 
-		std::expected<std::string, HTTPErr> write_persistent_headers(
+		std::expected<std::string, HTTPErr> write_headers(
 			HTTPMethod method,
 			HTTPConnection connenction,
 			HTTPContent contentType,
@@ -79,12 +79,12 @@ namespace communicator
 	};
 
 
-	std::expected<HTTPOutput, HTTPErr> get(std::string_view url);
-	std::expected<HTTPOutput, HTTPErr> post(std::string_view url, HTTPContent content, std::string_view body, const std::unordered_map<std::string, std::string>& headers = {});
+	std::expected<HTTPOutput, HTTPErr> get(std::string_view url, const std::unordered_map<std::string, std::string>& headers = {}, asio::ip::tcp::socket* socket = nullptr);
+	std::expected<HTTPOutput, HTTPErr> post(std::string_view url, HTTPContent content, std::string_view body, const std::unordered_map<std::string, std::string>& headers = {}, asio::ip::tcp::socket* socket = nullptr);
 
 	//std::string parse_http(const std::string& response, HTTPParse type);
 
-	std::expected<URLDecriptorOutput, HTTPErr> decrypt_url_http(std::string_view url);
+	std::expected<URLDescriptorOutput, HTTPErr> decrypt_url_http(std::string_view url);
 
 	std::expected<HTTPOutput, HTTPErr> send_http_request(
 		HTTPMethod method,
@@ -93,7 +93,8 @@ namespace communicator
 		std::string_view path,
 		std::string_view port,
 		std::string_view body = "",
-		const std::unordered_map<std::string, std::string>& extraHeaders = {});
+		const std::unordered_map<std::string, std::string>& extraHeaders = {},
+		asio::ip::tcp::socket* socket = nullptr);
 
 	std::expected<HTTPOutput, HTTPErr> send_raw_http_request(std::string_view host, std::string_view path, std::string_view port, std::string_view request, asio::ip::tcp::socket* socket = nullptr);
 

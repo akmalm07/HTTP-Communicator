@@ -54,3 +54,4 @@ Makefile
 obj/
 vendor/
 test/
+local-py-server/
