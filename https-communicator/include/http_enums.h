@@ -38,7 +38,6 @@ namespace communicator
 	enum class HTTPContentEncoding : uint32_t
 	{
 		None,
-		Chunked,
 		Identity,
 		Gzip,
 		Deflate,
@@ -52,7 +51,7 @@ namespace communicator
 		TextPlain,
 		TextHTML,
 		TextCSS,
-		TextJavaScript,
+		ApplicationJavaScript,
 		ApplicationJSON,
 		ApplicationXML,
 		ApplicationFormUrlEncoded,
@@ -61,8 +60,7 @@ namespace communicator
 		ImageGIF,
 
 		//Unsupported Yet:
-			//ApplicationOctetStream,
-			//ApplicationJavaScript
+		ApplicationOctetStream,
 	};
 
 
@@ -91,8 +89,12 @@ namespace communicator
 		ConnectionFailed,
 		RequestTimeout,
 		InvalidData,
+		InvalidReadingData,
+		FailedToMakePersistentConnection,
 		EmptyRequest,
 		InvalidMethod,
+		FailedToCloseSocket,
+		InvalidContentType,
 		MissingCRLF,
 		InvalidHTTPVersion,
 		MissingHeaderTerminator,
@@ -100,12 +102,13 @@ namespace communicator
 		InvalidURL,
 		RedirectLimitExceeded,
 		InvalidContentSize,
-		UnsupportedTransferEncoding,
 		NoBodyForMethod,
 		HTTPVersionUndefined,
-
+		UnsupportedEncoding,
 		//Temporary errors
-		ChunkedEncodingNotSupported
+		ChunkedEncodingNotSupported,
+		UnsupportedTransferEncoding,
+		UnsupportedContentEncoding,
 
 	};
 

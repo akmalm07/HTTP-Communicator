@@ -8,12 +8,23 @@
 
 int main(int argc, char **argv)
 {
-   ::testing::InitGoogleTest(&argc, argv);
+	::testing::InitGoogleTest(&argc, argv);
    
 
-   communicator::HTTPCommunicator http("http://localhost:8080", {}, 10);
+	//communicator::HTTPCommunicator http("http://localhost:8080", {}, 10);
+	//auto res = http.post_string("/test", communicator::HTTPContent::ApplicationJSON, R"({"key": "value"})", { {"Custom-Header", "Value"} });
+	//std::cerr << "Error: " << static_cast<int>(res) << std::endl;
+	//http.get_string("/");
 
-   communicator::get("http://localhost:8080");
+	auto res = communicator::post("http://localhost:8080/test", communicator::HTTPContent::ApplicationJSON, R"({"key": "value"})", { {"Custom-Header", "Value"} });
 
-   http.get_string("/");
+	if (res.has_value())
+	{
+		std::cout << "Response: " << std::get<std::string>(res->body) << std::endl;
+	}
+	else
+	{
+		std::cerr << "Error: " << static_cast<int>(res.error()) << std::endl;
+	}
+
 }

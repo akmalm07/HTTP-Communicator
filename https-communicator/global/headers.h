@@ -28,4 +28,5 @@ constexpr bool DEBUG_STATUS = false;
 
 #define DEBUG_LN if (DEBUG_STATUS)
 
-#define DEBUG(x) if (DEBUG_STATUS) { std::cout << x << std::endl; }
+#define DEBUG(x) if (DEBUG_STATUS) { x }
+
