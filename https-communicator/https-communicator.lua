@@ -8,69 +8,61 @@ project "https-communicator"
     targetdir ("bin/" .. outputdir .. "/%{prj.name}")
     objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
 
-    -- Include directories
-    includedirs 
-    {
-        "%{IncludeDir.ASIO}",
-        "%{IncludeDir.OpenSSL}",
-        "global",            
-        "include",           
-        "src",
-
-    }
-
-    -- Files
     files 
     {
         "src/**.cpp",           
         "include/**.h",     
         "include/**.inl",
-
         "global/**.h",
         "global/**.cpp",
     }
-
-    -- Library directories
-    libdirs 
-    { 
-        --"%{LibDir.OpenSSL}",
-    }
-
-    defines
-    {
-        --"OPENSSL_NO_AUTO_INIT", TODO: Implement TLS for HTTPS communication using the OpenSSL Lib
-        --"OPENSSL_NO_AUTO_CLEANUP",
-        --"OPENSSL_USE_STATIC_LIBS",
-        "ASIO_STANDALONE",
-    }
-
-    -- Links
-    links 
-    { 
-        --"libssl_static",
-        --"libcrypto_static.lib",
-        --"ws2_32",
-        --"crypt32",
-        --"user32",
-        --"gdi32",
-
-        --Used gtest for testing perposes
     
-        --"gtest",
-        --"gmock",
-
+    includedirs 
+    {
+        "%{IncludeDir.ASIO}",
+        "global",            
+        "include",           
+        "src",
     }
+    
+    if _OPTIONS["with-openssl"] then
+        includedirs "%{IncludeDir.OpenSSL}"
+        libdirs "%{LibDir.OpenSSL}"
+        defines
+        {
+            "OPENSSL_NO_AUTO_INIT", 
+            "OPENSSL_NO_AUTO_CLEANUP",
+            "OPENSSL_USE_STATIC_LIBS",
+        }
+        links 
+        { 
+            "libssl_static",
+            "libcrypto_static.lib",
+            "ws2_32",
+            "crypt32",
+            "user32",
+            "gdi32",
+        }
+    end
+    
+    if _OPTIONS["with-gtest"] then
+        includedirs "%{IncludeDir.TEST}"
+        libdirs "%{LibDir.TEST}"
+        links 
+        {
+            "gtest_main",
+            "gtest"
+        }
+    end
 
+    defines "ASIO_STANDALONE"
+    
     pchheader "headers.h"
-    pchsource "headers.cpp"
-
-
-    flags { "Verbose" }
-
+    pchsource "global/headers.cpp"
 
     -- Toolset and compiler settings
     filter "toolset:msc"
-        toolset "msc-v143" --
+        toolset "msc-v143"
         buildoptions { "/std:c++23" } 
         
     filter "toolset:gcc or toolset:clang"
@@ -81,15 +73,15 @@ project "https-communicator"
         defines "DEBUG"
         symbols "On"
         optimize "Off"
-        runtime "Release"  
+        runtime  "Release"--"Debug"
 
     filter "configurations:Release"
         symbols "Off"
         optimize "On"
         defines "NDEBUG"
-        runtime "Release"  
+        runtime "Release"
 
-    -- Windows system settings
+    -- Windows specific settings
     filter "system:windows"
         systemversion "latest"
         defines "PLATFORM_WINDOWS"
@@ -99,10 +91,6 @@ project "https-communicator"
         defines "_CRT_SECURE_NO_WARNINGS"
         staticruntime "on"
 
-    -- Linux and GCC/Clang settings
+    -- Linux/GCC/Clang settings
     filter "system:linux or toolset:gcc or toolset:clang"
         buildoptions { "-include pch.h" }
-    
-    filter "files:global/headers.cpp"   
-        buildoptions { "/Ycheaders.h" }
-    
